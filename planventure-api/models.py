@@ -1,6 +1,19 @@
 from datetime import datetime, timezone
 
-from app import db
+import bcrypt
+
+from extensions import db
+
+
+def hash_password(password: str) -> str:
+    """Create a bcrypt hash for a plaintext password."""
+    salt = bcrypt.gensalt()
+    return bcrypt.hashpw(password.encode("utf-8"), salt).decode("utf-8")
+
+
+def verify_password(password: str, password_hash: str) -> bool:
+    """Verify a plaintext password against a stored bcrypt hash."""
+    return bcrypt.checkpw(password.encode("utf-8"), password_hash.encode("utf-8"))
 
 
 class User(db.Model):
@@ -20,6 +33,12 @@ class User(db.Model):
         onupdate=lambda: datetime.now(timezone.utc),
         nullable=False,
     )
+
+    def set_password(self, password: str):
+        self.password_hash = hash_password(password)
+
+    def check_password(self, password: str) -> bool:
+        return verify_password(password, self.password_hash)
 
     def __repr__(self):
         return f"<User {self.email}>"

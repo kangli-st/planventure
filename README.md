@@ -47,6 +47,7 @@ cp .sample.env .env
 5. Start the Flask development server:
 ```sh
 flask run
+flask run --debug  # For development with auto-reload
 ```
 
 ## 📚 API Endpoints

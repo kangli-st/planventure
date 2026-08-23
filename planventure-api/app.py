@@ -1,12 +1,14 @@
 import os
 import re
+from functools import wraps
 
 from dotenv import load_dotenv
 from flask import Flask, jsonify, request
 from flask_cors import CORS
-from flask_jwt_extended import create_access_token, get_jwt_identity
+from flask_jwt_extended import create_access_token, get_jwt_identity, verify_jwt_in_request
 
 from extensions import db, jwt
+from trip_routes import trip_bp
 
 load_dotenv()
 
@@ -17,16 +19,23 @@ app.config["JWT_SECRET_KEY"] = os.getenv("JWT_SECRET_KEY", app.config["SECRET_KE
 app.config["SQLALCHEMY_DATABASE_URI"] = os.getenv("DATABASE_URL", "sqlite:///planventure.db")
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 
-cors_origins = os.getenv("CORS_ORIGINS", "http://localhost:3000")
+cors_origins = os.getenv("CORS_ORIGINS", "http://localhost:3000,http://127.0.0.1:3000,http://localhost:5173,http://127.0.0.1:5173")
+allowed_origins = [origin.strip() for origin in cors_origins.split(",") if origin.strip()]
 CORS(
     app,
     resources={
-        r"/*": {"origins": [o.strip() for o in cors_origins.split(",")]},
+        r"/*": {
+            "origins": allowed_origins,
+            "methods": ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+            "allow_headers": ["Content-Type", "Authorization"],
+        },
     },
+    supports_credentials=True,
 )
 
 db.init_app(app)
 jwt.init_app(app)
+app.register_blueprint(trip_bp)
 
 from models import User, hash_password  # noqa: E402
 
@@ -44,6 +53,17 @@ def get_current_user_id() -> str:
 def is_valid_email(email: str) -> bool:
     pattern = r"^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$"
     return re.match(pattern, email) is not None
+
+
+def auth_required(view_fn):
+    """Middleware-style decorator that requires a valid JWT on the route."""
+
+    @wraps(view_fn)
+    def wrapped(*args, **kwargs):
+        verify_jwt_in_request()
+        return view_fn(*args, **kwargs)
+
+    return wrapped
 
 
 @app.route("/")
@@ -107,6 +127,17 @@ def login_user():
             "user": {"id": user.id, "email": user.email},
         }
     ), 200
+
+
+@app.route("/auth/me", methods=["GET"])
+@auth_required
+def auth_me():
+    user_id = int(get_current_user_id())
+    user = User.query.get(user_id)
+    if user is None:
+        return jsonify({"error": "User not found"}), 404
+
+    return jsonify({"user": {"id": user.id, "email": user.email}}), 200
 
 
 with app.app_context():
